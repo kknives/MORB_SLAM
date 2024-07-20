@@ -48,6 +48,9 @@ find_package(realsense2)
 
 #set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
 
+add_subdirectory(Thirdparty/g2o)
+add_subdirectory(Thirdparty/DBoW2)
+
 add_library(${PROJECT_NAME} SHARED
 src/System.cc
 src/Tracking.cc
@@ -109,8 +112,6 @@ include/Config.h
 include/Settings.h)
 
 
-add_subdirectory(Thirdparty/g2o)
-add_subdirectory(Thirdparty/DBoW2)
 
 target_include_directories(${PROJECT_NAME}
     PUBLIC
@@ -126,8 +127,9 @@ target_link_libraries(${PROJECT_NAME}
 ${OpenCV_LIBS}
 ${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
-${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
+PUBLIC
+${CMAKE_BINARY_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
+${CMAKE_BINARY_DIR}/Thirdparty/g2o/lib/libg2o.so
 -lboost_serialization
 -lcrypto
 )
