@@ -32,7 +32,8 @@
 #include <librealsense2/rs.hpp>
 #include "librealsense2/rsutil.h"
 
-
+#include <Eigen/Geometry>
+#include <Eigen/Dense>
 #include <System.h>
 #include <Viewer.h>
 
@@ -56,7 +57,38 @@ void interpolateData(const std::vector<double> &vBase_times,
 rs2_vector interpolateMeasure(const double target_time,
                               const rs2_vector current_data, const double current_time,
                               const rs2_vector prev_data, const double prev_time);
+Eigen::Quaternionf nedToNwu(const Eigen::Quaternionf& q_ned) {
+    // The transformation from NED to NWU involves a 180-degree rotation about the X-axis
+    Eigen::Quaternionf q_ned_to_nwu = Eigen::Quaternionf(Eigen::AngleAxisf(M_PI, Eigen::Vector3f::UnitX()));
+    Eigen::Quaternionf q_nwu = q_ned_to_nwu * q_ned * q_ned_to_nwu.inverse();
+    return q_nwu;
+}
 
+Eigen::Vector3f quaternionToEulerAngles(const Eigen::Quaternionf& q) {
+    // Normalize the quaternion to avoid scaling issues
+    Eigen::Quaternionf q_norm = q.normalized();
+
+    // Extract the Euler angles from the normalized quaternion
+    float ysqr = q_norm.y() * q_norm.y();
+
+    // Roll (x-axis rotation)
+    float t0 = +2.0 * (q_norm.w() * q_norm.x() + q_norm.y() * q_norm.z());
+    float t1 = +1.0 - 2.0 * (q_norm.x() * q_norm.x() + ysqr);
+    float roll = std::atan2(t0, t1);
+
+    // Pitch (y-axis rotation)
+    float t2 = +2.0 * (q_norm.w() * q_norm.y() - q_norm.z() * q_norm.x());
+    t2 = t2 > 1.0 ? 1.0 : t2;
+    t2 = t2 < -1.0 ? -1.0 : t2;
+    float pitch = std::asin(t2);
+
+    // Yaw (z-axis rotation)
+    float t3 = +2.0 * (q_norm.w() * q_norm.z() + q_norm.x() * q_norm.y());
+    float t4 = +1.0 - 2.0 * (ysqr + q_norm.z() * q_norm.z());
+    float yaw = std::atan2(t3, t4);
+
+    return Eigen::Vector3f(yaw, pitch, roll); // Yaw, Pitch, Roll
+}
 static rs2_option get_sensor_option(const rs2::sensor& sensor)
 {
     // Sensors usually have several options to control their properties
@@ -97,6 +129,15 @@ static rs2_option get_sensor_option(const rs2::sensor& sensor)
 
     uint32_t selected_sensor_option = 0;
     return static_cast<rs2_option>(selected_sensor_option);
+}
+void unwrapYaw(float& previousYaw, float& currentYaw) {
+    float deltaYaw = currentYaw - previousYaw;
+    if (deltaYaw > M_PI) {
+        currentYaw -= 2.0 * M_PI;
+    } else if (deltaYaw < -M_PI) {
+        currentYaw += 2.0 * M_PI;
+    }
+    previousYaw = currentYaw;
 }
 
 int main(int argc, char **argv) {
@@ -145,9 +186,9 @@ int main(int argc, char **argv) {
         if (sensor.supports(RS2_CAMERA_INFO_NAME)) {
             ++index;
             if (index == 1) {
-                sensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1);
-                sensor.set_option(RS2_OPTION_AUTO_EXPOSURE_LIMIT,50000);
-                sensor.set_option(RS2_OPTION_EMITTER_ENABLED, 1); // emitter on for depth information
+                // sensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1);
+                // sensor.set_option(RS2_OPTION_AUTO_EXPOSURE_LIMIT,50000);
+                // sensor.set_option(RS2_OPTION_EMITTER_ENABLED, 1); // emitter on for depth information
             }
             // std::cout << "  " << index << " : " << sensor.get_info(RS2_CAMERA_INFO_NAME) << std::endl;
             get_sensor_option(sensor);
@@ -319,7 +360,7 @@ int main(int argc, char **argv) {
     double t_track = 0.f;
 #endif
     rs2::frameset fs;
-
+    float prev_yaw = 0;
     while (viewer.isOpen())
     {
         {
@@ -379,6 +420,10 @@ int main(int argc, char **argv) {
 #endif
         // Pass the image to the SLAM system
         auto pos = SLAM->TrackRGBD(im, depth, timestamp); //, vImuMeas); depthCV
+      // std::cout << pos.inverse().matrix() << '\n';
+      Eigen::Quaternionf q = nedToNwu(pos.inverse().unit_quaternion());
+      Eigen::Vector3f euler_angles = quaternionToEulerAngles(q);
+        std::cout << euler_angles(0) * 180 / M_PI << '\n';
 
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point t_End_Track = std::chrono::steady_clock::now();
