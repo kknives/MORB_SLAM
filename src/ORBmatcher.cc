@@ -22,7 +22,7 @@
 #include "ORBmatcher.h"
 
 #include <limits.h>
-#include <stdint-gcc.h>
+#include <stdint.h>
 
 #include <opencv2/core/core.hpp>
 
